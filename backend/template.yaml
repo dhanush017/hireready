@@ -1,0 +1,103 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: HireReady AI - Your AI Placement Copilot (Backend)
+
+Globals:
+  Function:
+    Timeout: 29
+    MemorySize: 512
+    Runtime: python3.12
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        BEDROCK_MODEL_ID: !Ref BedrockModelId
+        AWS_LWA_INVOKE_MODE: RESPONSE_STREAM
+
+  Api:
+    Cors:
+      AllowMethods: "'GET,POST,OPTIONS'"
+      AllowHeaders: "'Content-Type,Authorization'"
+      AllowOrigin: !Ref CorsOrigin
+
+Parameters:
+  BedrockModelId:
+    Type: String
+    Default: amazon.nova-lite-v1:0
+    Description: Bedrock model ID for Strands agents
+
+  CorsOrigin:
+    Type: String
+    Default: "'*'"
+    Description: Allowed CORS origin (set to Amplify URL in production)
+
+Resources:
+  HireReadyApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: prod
+      CorsConfiguration:
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+        AllowOrigins:
+          - "*"
+      ThrottlingBurstLimit: 10
+      ThrottlingRateLimit: 5
+
+  HireReadyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src.handler.handler
+      CodeUri: .
+      ReservedConcurrentExecutions: 5
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${BedrockModelId}"
+      Events:
+        Health:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HireReadyApi
+            Path: /api/health
+            Method: GET
+        Analyze:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HireReadyApi
+            Path: /api/analyze
+            Method: POST
+        Plan:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HireReadyApi
+            Path: /api/plan
+            Method: POST
+        InterviewQuestions:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HireReadyApi
+            Path: /api/interview/questions
+            Method: POST
+        InterviewFeedback:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HireReadyApi
+            Path: /api/interview/feedback
+            Method: POST
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${HireReadyApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+  FunctionArn:
+    Description: Lambda Function ARN
+    Value: !GetAtt HireReadyFunction.Arn

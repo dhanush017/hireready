@@ -30,14 +30,53 @@ def get_settings() -> Settings:
 def get_model():
     """Create the Strands model provider.
 
-    Uses BedrockModel by default. To use a different provider for local
-    development (e.g., when Bedrock access is unavailable), change this
-    function only — all agents use whatever this returns.
+    Uses BedrockModel by default (or when AWS credentials / Lambda are present).
+    For local development when Bedrock access is unavailable, automatically
+    falls back to Groq or OpenAI if their API keys are present, as documented
+    in the hackathon requirements.
     """
+    settings = get_settings()
+
+    # Explicit override via environment variable
+    provider = os.environ.get("MODEL_PROVIDER", "").lower()
+
+    if provider == "groq" or (not provider and os.environ.get("GROQ_API_KEY")):
+        import boto3
+        # If AWS credentials exist and provider wasn't explicitly set to groq, use Bedrock
+        has_aws = False
+        try:
+            has_aws = bool(
+                os.environ.get("AWS_LAMBDA_FUNCTION_NAME")
+                or boto3.Session().get_credentials()
+            )
+        except Exception:
+            has_aws = False
+
+        if not has_aws or provider == "groq":
+            from strands.models.openai import OpenAIModel
+
+            groq_key = os.environ.get("GROQ_API_KEY")
+            if groq_key:
+                return OpenAIModel(
+                    model_id=os.environ.get("GROQ_MODEL_ID", "qwen/qwen3.8-27b"),
+                    client_args={
+                        "base_url": "https://api.groq.com/openai/v1",
+                        "api_key": groq_key,
+                    },
+                )
+
+    if provider == "openai" or (not provider and os.environ.get("OPENAI_API_KEY")):
+        from strands.models.openai import OpenAIModel
+
+        return OpenAIModel(
+            model_id=os.environ.get("OPENAI_MODEL_ID", "gpt-4o-mini"),
+        )
+
+    # Default: Amazon Bedrock
     from strands.models.bedrock import BedrockModel
 
-    settings = get_settings()
     return BedrockModel(
         model_id=settings.bedrock_model_id,
         region_name=settings.aws_region,
     )
+

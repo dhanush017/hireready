@@ -20,8 +20,8 @@ def _run_agent_with_retry(agent, prompt: str, output_model, agent_name: str):
     """Run a Strands agent with structured output and one retry on failure."""
     try:
         result = agent.structured_output(
+            output_model,
             prompt=prompt,
-            output_model=output_model,
         )
         return result
     except Exception as first_error:
@@ -34,8 +34,8 @@ def _run_agent_with_retry(agent, prompt: str, output_model, agent_name: str):
                 f"Please respond with valid JSON matching the required schema exactly."
             )
             result = agent.structured_output(
+                output_model,
                 prompt=correction_prompt,
-                output_model=output_model,
             )
             return result
         except Exception as second_error:

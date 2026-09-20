@@ -17,6 +17,15 @@
     --accent-color: #0267c7;
   }
 
+  :root.dark {
+    --bg-page: #09090b;
+    --border-subtle: #27272a;
+    --text-primary: #fafafa;
+    --text-secondary: #a1a1aa;
+    --text-muted: #71717a;
+    --accent-color: #36a3f7;
+  }
+
   body {
     background-color: var(--bg-page);
     color: var(--text-primary);

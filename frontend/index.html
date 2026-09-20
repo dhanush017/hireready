@@ -7,7 +7,18 @@
     <title>HireReady AI — Your AI Placement Copilot</title>
     <meta name="description" content="Bridge the gap between your resume and dream tech internship. Transparent match scoring, skill gap breakdown, 4-week roadmap, and AI interview practice." />
   </head>
-  <body class="bg-slate-950 text-slate-100">
+  <body>
+    <script>
+      // Apply the saved (or system) theme before paint to avoid a flash.
+      (function () {
+        try {
+          var t = localStorage.getItem('theme');
+          if (t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

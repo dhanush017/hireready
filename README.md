@@ -6,7 +6,7 @@
 [![Strands Agents](https://img.shields.io/badge/AI%20SDK-Strands%20Agents-4F46E5)](https://github.com/strands-agents)
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI%20%2B%20Mangum-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React + Vite](https://img.shields.io/badge/Frontend-React%20%2B%20Vite%20%2B%20Tailwind-61DAFB?logo=react&logoColor=black)](https://vitejs.dev/)
-[![Tests](https://img.shields.io/badge/pytest-46%20passed%20(100%25)-brightgreen?logo=pytest)](https://pytest.org/)
+[![Tests](https://img.shields.io/badge/pytest-55%20passed%20(100%25)-brightgreen?logo=pytest)](https://pytest.org/)
 
 ---
 
@@ -30,6 +30,17 @@ HireReady AI acts as a 24/7 personal placement mentor:
 - **Actionable 4-Week Roadmap**: Converts skill gaps into a structured week-by-week study plan with estimated time commitments and concrete deliverables.
 - **Capstone Project Recommendation**: Recommends a single, high-impact resume project specifically designed to demonstrate missing competencies to recruiters.
 - **AI Interview Practice Round**: Generates 5 tailored interview questions across Resume, Technical, DSA, Project, and Behavioral categories, evaluates student answers out of 10, highlights strengths & weaknesses, and provides a model answer.
+
+---
+
+## 🎨 Frontend & UX
+
+The React + Vite + Tailwind SPA follows a clean, light-first design system with a reusable component library (`frontend/src/components/ui/`: Button, Card, Badge, Chip, Input, Textarea, ProgressBar, Skeleton) and the self-hosted Inter typeface.
+
+- **Light / Dark mode**: A header toggle switches themes. The choice persists in `localStorage` and falls back to the OS `prefers-color-scheme`. An inline pre-paint script in `index.html` applies the saved theme before React mounts, so there's no flash of the wrong theme.
+- **Compact input screen**: A single card holds both the résumé and job-description inputs, with the primary action inside the card and helper text that explains what's still required while the button is disabled.
+- **Friendly error handling**: API failures are mapped to plain-language messages by type — network/unreachable, timeout (30s request budget via `AbortController`), invalid input (surfacing the backend's specific 400 detail), and server error — each shown in a banner with a **Retry** action instead of raw strings like "Bad Gateway".
+- **Backend status**: A health check runs on load; a warning appears in the header **only when the backend is unreachable** (clicking it rechecks), keeping the UI uncluttered when everything is healthy.
 
 ---
 
@@ -137,37 +148,55 @@ $$\text{Score} = \frac{\sum (\text{weight} \times \text{credit})}{\sum \text{wei
 - AWS Account with Bedrock model access (Amazon Nova Lite enabled) — the default provider
 - _Optional:_ a Groq or OpenAI key for local dev without Bedrock (see "Model Provider Selection" above and `.env.example`)
 
+> Commands below are written for **Windows PowerShell**. Run the backend and the frontend in **two separate terminals**.
+
 ### 1. Clone the Repository
-```bash
-git clone https://github.com/your-org/hireready.git
+```powershell
+git clone https://github.com/dhanush017/hireready.git
 cd hireready
 ```
 
-### 2. Backend Setup
-```bash
+### 2. Backend Setup (Terminal 1)
+```powershell
 cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-pip install pytest pypdf mangum strands-agents
+pip install pytest
 
-# Run unit test suite (55 tests)
+# Run the unit test suite (55 tests)
 python -m pytest tests -v
 ```
 
-By default the backend uses Amazon Bedrock. To run locally against Groq instead (no Bedrock access required), copy `.env.example` to `.env` and set `MODEL_PROVIDER=groq` plus your `GROQ_API_KEY`. Leave `MODEL_PROVIDER` unset to use Bedrock.
+**Environment variables** (backend). None are required to start the server — Amazon Bedrock is the default. Set these only for the noted cases (names only; put real values in a gitignored `.env`, never commit them):
 
-Run the backend server locally:
-```bash
-uvicorn src.handler:app --reload --port 8000
+| Variable | Required? | Purpose |
+|----------|-----------|---------|
+| `MODEL_PROVIDER` | No | Leave unset for Bedrock (default). Set to `groq` or `openai` for local dev without Bedrock. |
+| `AWS_REGION` | For Bedrock | AWS region for Bedrock (defaults to `us-east-1`). |
+| `BEDROCK_MODEL_ID` | No | Overrides the default `amazon.nova-lite-v1:0`. |
+| `GROQ_API_KEY` | If `MODEL_PROVIDER=groq` | Groq API key. |
+| `GROQ_MODEL_ID` / `GROQ_MAX_TOKENS` | No | Groq model overrides. |
+| `OPENAI_API_KEY` | If `MODEL_PROVIDER=openai` | OpenAI API key. |
+| `CORS_ORIGIN` | No | Allowed browser origin (defaults to `*`). |
+
+To use Bedrock you need working AWS credentials (e.g. `aws configure`, or `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` in your environment). For local dev without Bedrock, copy `.env.example` to `.env`, set `MODEL_PROVIDER=groq`, and provide `GROQ_API_KEY`.
+
+Start the backend server (stays running in this terminal):
+```powershell
+python -m uvicorn src.handler:app --reload --port 8000
 ```
+The API is now at `http://127.0.0.1:8000`. Verify it: open `http://127.0.0.1:8000/api/health` — it should return `{"status":"healthy",...}`.
 
-### 3. Frontend Setup
-```bash
-cd ../frontend
+### 3. Frontend Setup (Terminal 2)
+```powershell
+cd frontend
 npm install
-npm run build
 npm run dev
 ```
-Open `http://localhost:5173` in your browser.
+Open **`http://localhost:5173`** in your browser.
+
+**How the frontend finds the backend.** In dev, the Vite server (`vite.config.ts`) proxies every `/api/*` request to `http://127.0.0.1:8000`, so the frontend calls relative paths and **no frontend environment variable is needed** — just start the backend on port 8000 first. Only when pointing the frontend at a remote/deployed backend do you set `VITE_API_BASE_URL` (e.g. in `frontend/.env`) to that backend's base URL; leave it unset for local development.
 
 ---
 
@@ -201,8 +230,8 @@ backend/tests/test_scoring.py::TestCalculateScore .......              [100%]
 
 ## 🎬 3-Minute Demo Walkthrough
 
-1. **Load Realistic Demo Data**: Click `"Load Demo (B.Tech CSE vs SWE Intern)"` to populate sample student Aarav Sharma's credentials and CloudScale Tech's Software Engineer Intern JD.
-2. **Analyze Match**: Click `"Analyze Match & Gap Breakdown"`. Observe real-time progress steps showing PDF parsing, Strands Bedrock agents, and deterministic scoring.
+1. **Load Realistic Demo Data**: Click `"Load demo (B.Tech CSE vs SWE Intern)"` to populate sample student Aarav Sharma's credentials and CloudScale Tech's Software Engineer Intern JD.
+2. **Analyze Match**: Click `"Analyze match & gaps"`. Observe real-time progress steps showing PDF parsing, Strands Bedrock agents, and deterministic scoring.
 3. **Inspect Match Score & Gaps**: Review the 71% match score, matched skills (C++, Python, SQL, Git), partial credits (AWS / Docker), and missing competencies with actionable fixes.
 4. **4-Week Curriculum & Capstone Project**: Explore the structured roadmap and recommended portfolio project (*"Distributed Rate-Limited Task Queue"*).
 5. **Interactive Interview Practice**: Click `"Practice Interview"`. Answer targeted questions, submit, and receive scored AI evaluations (/10) with strengths, improvements, and exemplar answers.

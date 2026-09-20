@@ -1,6 +1,5 @@
 # HireReady AI 🎯
 > **Your AI Placement Copilot**  
-> Built for the WeMakeDevs "First Commit" Hackathon (Ship It Track)
 
 [![AWS](https://img.shields.io/badge/AWS-Serverless%20Architecture-FF9900?logo=amazon-aws&logoColor=white)](https://aws.amazon.com/)
 [![Bedrock](https://img.shields.io/badge/Amazon%20Bedrock-Nova%20Lite-232F3E?logo=amazon-aws)](https://aws.amazon.com/bedrock/)

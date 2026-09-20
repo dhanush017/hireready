@@ -27,52 +27,57 @@ def get_settings() -> Settings:
     return Settings()
 
 
+def is_groq_provider() -> bool:
+    """Return True only when Groq is explicitly enabled via MODEL_PROVIDER=groq.
+
+    Groq is never selected implicitly. The deployed Lambda leaves MODEL_PROVIDER
+    unset and therefore always uses Amazon Bedrock.
+    """
+    return os.environ.get("MODEL_PROVIDER", "").lower() == "groq"
+
+
 def get_model():
     """Create the Strands model provider.
 
-    Uses BedrockModel by default (or when AWS credentials / Lambda are present).
-    For local development when Bedrock access is unavailable, automatically
-    falls back to Groq or OpenAI if their API keys are present, as documented
-    in the hackathon requirements.
+    Amazon Bedrock (Nova Lite) is the default and is what the deployed Lambda
+    uses. Alternative providers are opt-in and only activate when MODEL_PROVIDER
+    is explicitly set:
+      - MODEL_PROVIDER=groq   -> Groq (local development without Bedrock access)
+      - MODEL_PROVIDER=openai -> OpenAI
+    The mere presence of a GROQ_API_KEY / OPENAI_API_KEY no longer switches
+    providers, so a stray key can never override Bedrock in production.
     """
     settings = get_settings()
 
-    # Explicit override via environment variable
     provider = os.environ.get("MODEL_PROVIDER", "").lower()
 
-    if provider == "groq" or (not provider and os.environ.get("GROQ_API_KEY")):
-        import boto3
-        # If AWS credentials exist and provider wasn't explicitly set to groq, use Bedrock
-        has_aws = False
-        try:
-            has_aws = bool(
-                os.environ.get("AWS_LAMBDA_FUNCTION_NAME")
-                or boto3.Session().get_credentials()
+    if provider == "groq":
+        from strands.models.openai import OpenAIModel
+
+        groq_key = os.environ.get("GROQ_API_KEY")
+        if not groq_key:
+            raise ValueError(
+                "MODEL_PROVIDER=groq is set but GROQ_API_KEY is missing. "
+                "Set GROQ_API_KEY or unset MODEL_PROVIDER to use Amazon Bedrock."
             )
-        except Exception:
-            has_aws = False
+        max_tokens = int(os.environ.get("GROQ_MAX_TOKENS", "800"))
+        return OpenAIModel(
+            model_id=os.environ.get("GROQ_MODEL_ID", "qwen/qwen3.8-27b"),
+            client_args={
+                "base_url": "https://api.groq.com/openai/v1",
+                "api_key": groq_key,
+            },
+            params={"max_tokens": max_tokens},
+        )
 
-        if not has_aws or provider == "groq":
-            from strands.models.openai import OpenAIModel
-
-            groq_key = os.environ.get("GROQ_API_KEY")
-            if groq_key:
-                return OpenAIModel(
-                    model_id=os.environ.get("GROQ_MODEL_ID", "qwen/qwen3.8-27b"),
-                    client_args={
-                        "base_url": "https://api.groq.com/openai/v1",
-                        "api_key": groq_key,
-                    },
-                )
-
-    if provider == "openai" or (not provider and os.environ.get("OPENAI_API_KEY")):
+    if provider == "openai":
         from strands.models.openai import OpenAIModel
 
         return OpenAIModel(
             model_id=os.environ.get("OPENAI_MODEL_ID", "gpt-4o-mini"),
         )
 
-    # Default: Amazon Bedrock
+    # Default: Amazon Bedrock (Amazon Nova Lite) — used by the deployed Lambda.
     from strands.models.bedrock import BedrockModel
 
     return BedrockModel(

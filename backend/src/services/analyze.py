@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..agents.factory import get_resume_agent, get_job_agent
+from ..config import is_groq_provider
 from ..schemas.analyze import (
     AnalysisResult,
     AnalyzeRequest,
@@ -16,6 +18,7 @@ from ..schemas.analyze import (
     SkillMatch,
 )
 from ..scoring.engine import calculate_score, match_skills
+from ..utils.agent_runner import run_agent_with_retry
 from ..utils.pdf import PDFExtractionError, extract_text_from_base64
 from ..utils.validation import (
     ValidationError,
@@ -24,36 +27,6 @@ from ..utils.validation import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _run_agent_with_retry(agent, prompt: str, output_model, agent_name: str):
-    """Run a Strands agent with structured output and one retry on failure."""
-    try:
-        result = agent.structured_output(
-            output_model,
-            prompt=prompt,
-        )
-        return result
-    except Exception as first_error:
-        logger.warning(f"{agent_name} first attempt failed: {first_error}")
-        try:
-            correction_prompt = (
-                f"{prompt}\n\n"
-                f"IMPORTANT: Your previous response was invalid. "
-                f"Error: {first_error}. "
-                f"Please respond with valid JSON matching the required schema exactly."
-            )
-            result = agent.structured_output(
-                output_model,
-                prompt=correction_prompt,
-            )
-            return result
-        except Exception as second_error:
-            logger.error(f"{agent_name} retry also failed: {second_error}")
-            raise ValueError(
-                f"{agent_name} could not produce valid output after retry. "
-                f"Error: {second_error}"
-            )
 
 
 def _generate_gap_details(
@@ -123,7 +96,7 @@ def run_analysis(request: AnalyzeRequest) -> AnalysisResult:
         request.job_description, field_name="Job description"
     )
 
-    # 3. Run agents in parallel
+    # 3. Run agents (sequentially for Groq to respect token-per-minute limits, parallel for Bedrock)
     resume_agent = get_resume_agent()
     job_agent = get_job_agent()
 
@@ -134,30 +107,44 @@ def run_analysis(request: AnalyzeRequest) -> AnalysisResult:
     job_requirements = None
     errors = []
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        future_resume = executor.submit(
-            _run_agent_with_retry,
-            resume_agent, resume_prompt, ResumeProfile, "Resume Agent",
-        )
-        future_job = executor.submit(
-            _run_agent_with_retry,
-            job_agent, job_prompt, JobRequirements, "Job Agent",
-        )
+    if is_groq_provider():
+        # Sequential execution prevents OTPM (output tokens per minute) rate-limit spikes on Groq
+        try:
+            resume_profile = run_agent_with_retry(
+                resume_agent, resume_prompt, ResumeProfile, "Resume Agent"
+            )
+            # Brief pause to ensure token quota is refreshed
+            time.sleep(0.5)
+            job_requirements = run_agent_with_retry(
+                job_agent, job_prompt, JobRequirements, "Job Agent"
+            )
+        except Exception as e:
+            errors.append(str(e))
+    else:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_resume = executor.submit(
+                run_agent_with_retry,
+                resume_agent, resume_prompt, ResumeProfile, "Resume Agent",
+            )
+            future_job = executor.submit(
+                run_agent_with_retry,
+                job_agent, job_prompt, JobRequirements, "Job Agent",
+            )
 
-        for future in as_completed([future_resume, future_job]):
-            try:
-                result = future.result()
-                if isinstance(result, ResumeProfile):
-                    resume_profile = result
-                elif isinstance(result, JobRequirements):
-                    job_requirements = result
-            except Exception as e:
-                errors.append(str(e))
+            for future in as_completed([future_resume, future_job]):
+                try:
+                    result = future.result()
+                    if isinstance(result, ResumeProfile):
+                        resume_profile = result
+                    elif isinstance(result, JobRequirements):
+                        job_requirements = result
+                except Exception as e:
+                    errors.append(str(e))
 
-    if future_resume.done() and not future_resume.exception():
-        resume_profile = future_resume.result()
-    if future_job.done() and not future_job.exception():
-        job_requirements = future_job.result()
+        if future_resume.done() and not future_resume.exception():
+            resume_profile = future_resume.result()
+        if future_job.done() and not future_job.exception():
+            job_requirements = future_job.result()
 
     if errors:
         raise ValueError(f"Agent errors: {'; '.join(errors)}")

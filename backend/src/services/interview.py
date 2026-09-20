@@ -12,38 +12,9 @@ from ..schemas.interview import (
     InterviewQuestionsRequest,
     InterviewQuestionsResult,
 )
+from ..utils.agent_runner import run_agent_with_retry
 
 logger = logging.getLogger(__name__)
-
-
-def _run_agent_with_retry(agent, prompt: str, output_model, agent_name: str):
-    """Run a Strands agent with structured output and one retry on failure."""
-    try:
-        result = agent.structured_output(
-            output_model,
-            prompt=prompt,
-        )
-        return result
-    except Exception as first_error:
-        logger.warning(f"{agent_name} first attempt failed: {first_error}")
-        try:
-            correction_prompt = (
-                f"{prompt}\n\n"
-                f"IMPORTANT: Your previous response was invalid. "
-                f"Error: {first_error}. "
-                f"Please respond with valid JSON matching the required schema exactly."
-            )
-            result = agent.structured_output(
-                output_model,
-                prompt=correction_prompt,
-            )
-            return result
-        except Exception as second_error:
-            logger.error(f"{agent_name} retry also failed: {second_error}")
-            raise ValueError(
-                f"{agent_name} could not produce valid output after retry. "
-                f"Error: {second_error}"
-            )
 
 
 def generate_questions(request: InterviewQuestionsRequest) -> InterviewQuestionsResult:
@@ -85,7 +56,7 @@ Generate one question per category:
 Each question should include brief context about why it's relevant."""
 
     interview_agent = get_interview_agent()
-    result = _run_agent_with_retry(
+    result = run_agent_with_retry(
         interview_agent, prompt, InterviewQuestionsResult, "Interview Coach"
     )
 
@@ -112,7 +83,7 @@ Provide:
 - A complete improved answer (under 200 words)"""
 
     interview_agent = get_interview_agent()
-    result = _run_agent_with_retry(
+    result = run_agent_with_retry(
         interview_agent, prompt, InterviewFeedback, "Interview Coach"
     )
 

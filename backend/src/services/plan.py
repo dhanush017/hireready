@@ -6,38 +6,9 @@ import logging
 
 from ..agents.factory import get_planner_agent
 from ..schemas.plan import PlanRequest, PlanResult
+from ..utils.agent_runner import run_agent_with_retry
 
 logger = logging.getLogger(__name__)
-
-
-def _run_agent_with_retry(agent, prompt: str, output_model, agent_name: str):
-    """Run a Strands agent with structured output and one retry on failure."""
-    try:
-        result = agent.structured_output(
-            output_model,
-            prompt=prompt,
-        )
-        return result
-    except Exception as first_error:
-        logger.warning(f"{agent_name} first attempt failed: {first_error}")
-        try:
-            correction_prompt = (
-                f"{prompt}\n\n"
-                f"IMPORTANT: Your previous response was invalid. "
-                f"Error: {first_error}. "
-                f"Please respond with valid JSON matching the required schema exactly."
-            )
-            result = agent.structured_output(
-                output_model,
-                prompt=correction_prompt,
-            )
-            return result
-        except Exception as second_error:
-            logger.error(f"{agent_name} retry also failed: {second_error}")
-            raise ValueError(
-                f"{agent_name} could not produce valid output after retry. "
-                f"Error: {second_error}"
-            )
 
 
 def run_plan(request: PlanRequest) -> PlanResult:
@@ -92,7 +63,7 @@ CANDIDATE BACKGROUND:
 Focus the roadmap on closing the highest-priority gaps first. The project should use skills the candidate already has while building new ones they need."""
 
     planner_agent = get_planner_agent()
-    result = _run_agent_with_retry(
+    result = run_agent_with_retry(
         planner_agent, prompt, PlanResult, "Planner Agent"
     )
 

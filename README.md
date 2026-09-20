@@ -86,6 +86,20 @@ flowchart TD
 
 ---
 
+### Model Provider Selection
+
+Amazon Bedrock (Amazon Nova Lite) is the **default provider and is what the deployed Lambda always uses**. Alternative providers are opt-in for local development only and activate solely when `MODEL_PROVIDER` is set explicitly:
+
+| `MODEL_PROVIDER` | Provider used | Intended for |
+|------------------|---------------|--------------|
+| _(unset)_ | **Amazon Bedrock — Nova Lite** | Production Lambda + default local dev |
+| `groq` | Groq (OpenAI-compatible) | Local dev without Bedrock access |
+| `openai` | OpenAI | Local dev without Bedrock access |
+
+The mere presence of a `GROQ_API_KEY` or `OPENAI_API_KEY` does **not** switch providers, so a stray key can never override Bedrock in the deployed environment. All agent calls go through a shared `run_agent_with_retry` helper (`backend/src/utils/agent_runner.py`) with exponential backoff on rate limits, a single schema-correction retry on malformed output, and a ~20s total time budget so a request never approaches the API Gateway 29-second timeout.
+
+---
+
 ## ☁️ Why AWS Services?
 
 | AWS Service | Why We Chose It |
@@ -121,7 +135,8 @@ $$\text{Score} = \frac{\sum (\text{weight} \times \text{credit})}{\sum \text{wei
 ### Prerequisites
 - Python 3.12 or 3.13
 - Node.js 18+ and npm
-- AWS Account with Bedrock model access (Amazon Nova Lite enabled) or mock mode
+- AWS Account with Bedrock model access (Amazon Nova Lite enabled) — the default provider
+- _Optional:_ a Groq or OpenAI key for local dev without Bedrock (see "Model Provider Selection" above and `.env.example`)
 
 ### 1. Clone the Repository
 ```bash
@@ -135,9 +150,11 @@ cd backend
 pip install -r requirements.txt
 pip install pytest pypdf mangum strands-agents
 
-# Run unit test suite (46 tests)
+# Run unit test suite (55 tests)
 python -m pytest tests -v
 ```
+
+By default the backend uses Amazon Bedrock. To run locally against Groq instead (no Bedrock access required), copy `.env.example` to `.env` and set `MODEL_PROVIDER=groq` plus your `GROQ_API_KEY`. Leave `MODEL_PROVIDER` unset to use Bedrock.
 
 Run the backend server locally:
 ```bash
@@ -157,23 +174,28 @@ Open `http://localhost:5173` in your browser.
 
 ## 🧪 Test Suite Results
 
-The deterministic scoring engine and schema validation are covered by 46 unit tests:
+The deterministic scoring engine, schema validation, and agent-runner retry/backoff logic are covered by 55 unit tests:
 ```text
 ============================= test session starts =============================
 platform win32 -- Python 3.13.2, pytest-9.1.1, pluggy-1.6.0
-collected 46 items
+collected 55 items
 
-backend/tests/test_aliases.py::TestNormalizeSkill .............        [ 28%]
-backend/tests/test_schemas.py::TestResumeProfile ...                   [ 34%]
-backend/tests/test_schemas.py::TestJobRequirements .                  [ 36%]
-backend/tests/test_schemas.py::TestSkillMatch ..                       [ 41%]
-backend/tests/test_schemas.py::TestAnalyzeRequest ..                   [ 45%]
-backend/tests/test_schemas.py::TestPlanResult .                        [ 47%]
-backend/tests/test_schemas.py::TestInterviewSchemas ....               [ 56%]
-backend/tests/test_scoring.py::TestMatchSkills .............           [ 84%]
+backend/tests/test_agent_runner.py::TestErrorClassification ....       [  7%]
+backend/tests/test_agent_runner.py::TestRateLimitBackoff .             [  9%]
+backend/tests/test_agent_runner.py::TestSchemaCorrection .             [ 10%]
+backend/tests/test_agent_runner.py::TestNonRetryable .                 [ 12%]
+backend/tests/test_agent_runner.py::TestTimeBudget ..                  [ 16%]
+backend/tests/test_aliases.py::TestNormalizeSkill .............        [ 40%]
+backend/tests/test_schemas.py::TestResumeProfile ...                   [ 45%]
+backend/tests/test_schemas.py::TestJobRequirements .                  [ 47%]
+backend/tests/test_schemas.py::TestSkillMatch ..                       [ 50%]
+backend/tests/test_schemas.py::TestAnalyzeRequest ..                   [ 54%]
+backend/tests/test_schemas.py::TestPlanResult .                        [ 56%]
+backend/tests/test_schemas.py::TestInterviewSchemas ....               [ 63%]
+backend/tests/test_scoring.py::TestMatchSkills .............           [ 87%]
 backend/tests/test_scoring.py::TestCalculateScore .......              [100%]
 
-============================= 46 passed in 1.00s ==============================
+============================= 55 passed in 0.24s ==============================
 ```
 
 ---

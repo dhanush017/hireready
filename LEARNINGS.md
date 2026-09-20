@@ -15,7 +15,30 @@
 
 ### Mistake & Fix
 - **Issue**: Strands structured output occasionally failed if the LLM emitted extra markdown backticks or preamble around the JSON payload.
-- **Fix**: Implemented `_run_agent_with_retry` in `services/analyze.py`, catching initial schema parse errors and re-prompting with an explicit correction reminder.
+- **Fix**: Implemented a retry helper, catching initial schema parse errors and re-prompting with an explicit correction reminder (see section 6 for how this was later centralized).
+
+---
+
+## 6. Multi-Provider Support, Rate Limits & Retry Design
+
+### Provider Switch (Bedrock default, Groq opt-in)
+- **What We Learned**: During local development, not every teammate had Bedrock model access enabled, so we added support for Groq (via the OpenAI-compatible `OpenAIModel`) and OpenAI as fallbacks.
+- **Mistake & Fix**:
+  - **Issue**: The first cut selected Groq implicitly whenever a `GROQ_API_KEY` was present and no AWS credentials were detected. This was fragile and dangerous — a stray environment variable could silently switch the deployed Lambda away from Bedrock.
+  - **Fix**: Provider selection is now **explicit-only**. `MODEL_PROVIDER=groq` (or `openai`) is the *only* way to leave Bedrock; the presence of a key alone does nothing. Amazon Bedrock (Nova Lite) is the default, and since the Lambda template never sets `MODEL_PROVIDER`, production always uses Bedrock. `is_groq_provider()` collapsed to a one-line explicit check as a result.
+
+### The Groq Rate-Limit Problem
+- **Issue**: Groq enforces an **output-tokens-per-minute (OTPM)** limit. Running the Resume Agent and Job Agent in parallel (as we do on Bedrock via `ThreadPoolExecutor`) spiked output tokens simultaneously and triggered `429` throttling mid-demo.
+- **Fix**: In `/api/analyze`, when Groq is the active provider we run the two agents **sequentially with a short pause** between them to spread token usage across the minute window. Bedrock keeps the faster parallel path — it has no equivalent OTPM ceiling for our volume.
+
+### Centralized Retry Helper with a Time Budget
+- **What We Learned**: The retry logic had been copy-pasted into three services (`analyze`, `plan`, `interview`). We extracted a single `run_agent_with_retry` into `backend/src/utils/agent_runner.py`.
+- **Design**:
+  - **Rate-limit / throttle errors** → exponential backoff (`2.5s`, `5s`, …) then retry.
+  - **Malformed / schema errors** → exactly one retry with a schema-correction prompt.
+  - **Permanent errors** (auth `401/403`, `404`, invalid key) → raised immediately, never retried, so we don't burn the request budget on something that can't succeed.
+  - **Total time budget (~20s)** → the whole retry loop is bounded well under the API Gateway 29-second timeout. If a backoff would push past the budget, we stop and return a friendly, non-technical message (*"The AI service is taking longer than expected right now. Please try again in a moment."*) instead of letting the gateway return an opaque `504`.
+- **Testing**: `tests/test_agent_runner.py` covers all four behaviors with mocked agents (backoff-then-success, single schema-correction retry, non-retryable short-circuit, and budget enforcement), bringing the suite to 55 tests.
 
 ---
 
